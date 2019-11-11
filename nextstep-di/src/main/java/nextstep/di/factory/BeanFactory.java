@@ -8,17 +8,22 @@ import org.springframework.beans.BeanUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public class BeanFactory {
     private static final Logger logger = LoggerFactory.getLogger(BeanFactory.class);
 
-    private BeanScanner beanScanner;
     private Map<Class<?>, Object> beans = Maps.newHashMap();
+    private Map<Object, Method> configBeans = Maps.newHashMap();
+    private Set<Class<?>> preInstanticateClazz;
 
     public BeanFactory(Object... basePackage) {
-        beanScanner = new BeanScanner(basePackage);
+        BeanScanner beanScanner = new BeanScanner(basePackage);
+        preInstanticateClazz = beanScanner.getBeans();
         initialize();
     }
 
@@ -27,8 +32,8 @@ public class BeanFactory {
         return (T) beans.get(requiredType);
     }
 
-    private void initialize() {
-        for (Class<?> preInstanticateBean : beanScanner.getBeans()) {
+    public void initialize() {
+        for (Class<?> preInstanticateBean : preInstanticateClazz) {
             scanBean(preInstanticateBean);
         }
     }
@@ -38,16 +43,29 @@ public class BeanFactory {
             return beans.get(preInstanticateBean);
         }
 
-        Constructor<?> injectedConstructor = BeanFactoryUtils.getInjectedConstructor(preInstanticateBean);
+        if (!configBeans.containsKey(preInstanticateBean)) {
+            Constructor<?> injectedConstructor = BeanFactoryUtils.getInjectedConstructor(preInstanticateBean);
 
-        if (Objects.isNull(injectedConstructor)) {
-            Object instance = BeanUtils.instantiateClass(preInstanticateBean);
-            beans.put(preInstanticateBean, instance);
-            logger.debug("bean name : {}, instance : {}", preInstanticateBean, instance);
-            return instance;
+            if (Objects.isNull(injectedConstructor)) {
+                Object instance = BeanUtils.instantiateClass(preInstanticateBean);
+                beans.put(preInstanticateBean, instance);
+                logger.debug("bean name : {}, instance : {}", preInstanticateBean, instance);
+                return instance;
+            }
+
+            return putParameterizedObject(preInstanticateBean, injectedConstructor);
+        } else {
+            Method method = configBeans.get(preInstanticateBean);
+
+            if (method.getParameterCount() == 0) {
+                Object instance = method.invoke(null);
+                beans.put(preInstanticateBean, instance);
+                logger.debug("bean name : {}, instance : {}", preInstanticateBean, instance);
+                return instance;
+            }
+
+            return putParameterizedMethodObject(preInstanticateBean, method);
         }
-
-        return putParameterizedObject(preInstanticateBean, injectedConstructor);
     }
 
     private Object putParameterizedObject(Class<?> preInstanticateBean, Constructor<?> constructor) {
@@ -62,8 +80,29 @@ public class BeanFactory {
         Object[] params = new Object[constructor.getParameterCount()];
         for (int i = 0; i < params.length; i++) {
             Class<?> parameterType = constructor.getParameterTypes()[i];
-            Class<?> concreteClass = BeanFactoryUtils.findConcreteClass(parameterType, beanScanner.getBeans());
+            Class<?> concreteClass = BeanFactoryUtils.findConcreteClass(parameterType, preInstanticateClazz);
             params[i] = scanBean(concreteClass);
+        }
+        return params;
+    }
+
+    private Object putParameterizedMethodObject(Class<?> preInstanticateBean, Method method) {
+        try {
+            Object[] params = getMethodParams(method);
+            Object instance = method.invoke(null, params);
+            beans.put(preInstanticateBean, instance);
+            logger.debug("bean name : {}, instance : {}", preInstanticateBean, instance);
+            return instance;
+        } catch (InvocationTargetException | IllegalAccessException e) {
+            throw new IllegalArgumentException("실행 불가능한 어플리케이션");
+        }
+    }
+
+    private Object[] getMethodParams(Method method) {
+        Object[] params = new Object[method.getParameterCount()];
+        for (int i = 0; i < params.length; i++) {
+            Class<?> parameterType = method.getParameterTypes()[i];
+            params[i] = scanBean(parameterType);
         }
         return params;
     }
@@ -76,6 +115,16 @@ public class BeanFactory {
             }
         }
         return annotatedClass;
+    }
+
+    public void registerBean(Class<?> clazz) throws IllegalAccessException, InstantiationException { // clazz = ExampleConfig
+        Map<Class<?>, Method> configBeans = BeanFactoryUtils.findConfigurationBean(clazz);
+        Set<Class<?>> configurationClass = configBeans.keySet();
+        preInstanticateClazz.addAll(configurationClass);
+        for (Class<?> configBean : configurationClass) {
+            this.configBeans.put(clazz.newInstance(), configBeans.get(configBean));
+        }
+        logger.debug("debug point");
     }
 }
 

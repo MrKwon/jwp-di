@@ -1,15 +1,18 @@
 package nextstep.di.factory;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import nextstep.annotation.Bean;
 import nextstep.annotation.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.Set;
 
-import static org.reflections.ReflectionUtils.getAllConstructors;
-import static org.reflections.ReflectionUtils.withAnnotation;
+import static org.reflections.ReflectionUtils.*;
 
 public class BeanFactoryUtils {
 
@@ -53,5 +56,15 @@ public class BeanFactoryUtils {
         }
 
         throw new IllegalStateException(injectedClazz + "인터페이스를 구현하는 Bean이 존재하지 않는다.");
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static Map<Class<?>, Method> findConfigurationBean(Class<?> configurationClass) {
+        Set<Method> beanMethods = getAllMethods(configurationClass, withAnnotation(Bean.class));
+        Map<Class<?>, Method> configBeans = Maps.newHashMap();
+        for (Method method : beanMethods) {
+            configBeans.put(method.getReturnType(), method);
+        }
+        return configBeans;
     }
 }

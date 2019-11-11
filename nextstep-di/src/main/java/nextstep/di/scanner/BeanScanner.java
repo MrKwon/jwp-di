@@ -15,16 +15,15 @@ public class BeanScanner {
     private static final Logger log = LoggerFactory.getLogger(BeanScanner.class);
 
     private Reflections reflections;
-    private Set<Class<?>> preInstanticateClazz;
 
     @SuppressWarnings("unchecked")
     public BeanScanner(Object... basePackage) {
         reflections = new Reflections(basePackage);
-        preInstanticateClazz = getTypesAnnotatedWith(Controller.class, Service.class, Repository.class);
     }
 
+    @SuppressWarnings("unchecked")
     public Set<Class<?>> getBeans() {
-        return preInstanticateClazz;
+        return getTypesAnnotatedWith(Controller.class, Service.class, Repository.class);
     }
 
     @SuppressWarnings("unchecked")
